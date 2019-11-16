@@ -38,12 +38,8 @@ class _HomePageState extends State<HomePage> {
 
   initState() {
     super.initState();
-    sw16 = SW16(address: '192.168.16.254');
-    sw16.connect().then((connected) {
-      if (!connected) {
-        print('connect fail');
-      }
-    });
+    sw16 = SW16();
+    sw16.connect();
   }
 
   reassemble() {
