@@ -1,13 +1,54 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 
-class SW16 {
-  var address;
-  var port;
-  var socket;
-  var connected;
-  var status;
-  var data = [
+class SW16DeviceInfo {
+  final String ip;
+  final String data;
+
+  SW16DeviceInfo(this.ip, this.data);
+
+  @override
+  String toString() {
+    return "$ip: $data";
+  }
+}
+
+class SW16Finder {
+  RawDatagramSocket udp;
+  final StreamController<SW16DeviceInfo> streamController = StreamController();
+
+  Future<void> init() async {
+    udp = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 23333);
+    udp.broadcastEnabled = true;
+    udp.listen((e) {
+      var response = udp.receive();
+      if (response != null) {
+        var address = response.address.address;
+        var data = utf8.decode(response.data);
+        streamController.sink.add(SW16DeviceInfo(address, data));
+      }
+    }, onDone: () {
+      streamController.close();
+    });
+  }
+
+  find() {
+    udp.send('HLK'.codeUnits, InternetAddress('255.255.255.255'), 988);
+  }
+
+  StreamSubscription<SW16DeviceInfo> listen(void onData(SW16DeviceInfo event)) {
+    return streamController.stream.listen(onData);
+  }
+}
+
+class SW16Device {
+  String address;
+  int port;
+  Socket socket;
+  bool connected;
+  List<int> status;
+  List<int> data = [
     0xaa,
     0X0f,
     0,
@@ -33,38 +74,14 @@ class SW16 {
   static const ON = 1;
   static const OFF = 2;
 
-  SW16({this.port = 8080});
+  SW16Device(this.address, {this.port = 8080});
 
   connect() async {
-    address = await getAddress();
     const timeout = Duration(seconds: 2);
     socket = await Socket.connect(address, port, timeout: timeout);
     socket.listen(onData, onDone: () {
       socket.destroy();
     });
-  }
-
-  getAddress() {
-    var completer = new Completer();
-    RawDatagramSocket.bind(InternetAddress.anyIPv4, 23333).then((udp) {
-      var address;
-      new Timer(Duration(seconds: 2), () {
-        if (address == null) {
-          completer.completeError('timeout');
-        }
-      });
-      udp.broadcastEnabled = true;
-      udp.listen((e) {
-        var response = udp.receive();
-        if (response != null) {
-          address = response.address.address;
-          udp.close();
-          completer.complete(address);
-        }
-      });
-      udp.send('HLK'.codeUnits, InternetAddress('255.255.255.255'), 988);
-    });
-    return completer.future;
   }
 
   onData(data) {
@@ -75,10 +92,17 @@ class SW16 {
     }
   }
 
-  turn(index, state) async {
+  turn(int index, int state) async {
     data[2] = index;
     data[3] = state;
     send();
+  }
+
+  turnAll() {
+    data[1] = 0x0a;
+    for (int i = 2; i < 16; i += 1) {
+      data[i] = ON;
+    }
   }
 
   send() {
