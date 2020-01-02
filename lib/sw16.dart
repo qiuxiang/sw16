@@ -109,3 +109,29 @@ class SW16Device {
     socket.add(data);
   }
 }
+
+class SW16 {
+  RawDatagramSocket udp;
+  final StreamController<SW16DeviceInfo> findController = StreamController();
+
+  SW16() {
+    RawDatagramSocket.bind(InternetAddress.anyIPv4, 23333).then((_udp) {
+      udp = _udp;
+      udp.broadcastEnabled = true;
+      udp.listen((_) {
+        var response = udp.receive();
+        if (response != null) {
+          var address = response.address.address;
+          var data = utf8.decode(response.data);
+          findController.sink.add(SW16DeviceInfo(address, data));
+        }
+      }, onDone: () {
+        findController.close();
+      });
+    });
+  }
+
+  Stream<SW16DeviceInfo> get onFindDevices {
+    return findController.stream;
+  }
+}
