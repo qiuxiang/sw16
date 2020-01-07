@@ -1,31 +1,43 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import 'sw16.dart';
+
 class WebApp extends StatelessWidget {
-  WebViewController _controller;
+  final _webView = Completer<WebViewController>();
+  final _sw16 = SW16();
+
+  WebApp() {
+    _sw16.findDevices.listen((device) {
+      print(device);
+      eval('on');
+    });
+  }
 
   @override
-  Widget build(var context) {
+  Widget build(context) {
     return Scaffold(
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          _controller.reload();
-        },
         child: Icon(Icons.refresh),
+        onPressed: () async {
+          (await _webView.future).reload();
+        },
       ),
       body: WebView(
         initialUrl: 'http://192.168.1.17:8000',
         onWebViewCreated: (controller) {
-          _controller = controller;
+          _webView.complete(controller);
         },
         javascriptMode: JavascriptMode.unrestricted,
         javascriptChannels: [
-          _javascriptChannel('getDevices', (data, callback) {
-            callback(data);
+          javascriptChannel('refreshDevices', (data, callback) {
+            _sw16.refreshDevices();
           }),
-          _javascriptChannel('print', (data, callback) {
+          javascriptChannel('getDevices', (data, callback) {}),
+          javascriptChannel('print', (data, callback) {
             print(data);
           })
         ].toSet(),
@@ -33,19 +45,19 @@ class WebApp extends StatelessWidget {
     );
   }
 
-  JavascriptChannel _javascriptChannel(String name, JCHandler handler) {
+  JavascriptChannel javascriptChannel(String name, handler) {
     return JavascriptChannel(
       name: name,
       onMessageReceived: (message) {
-        var json = jsonDecode(message.message);
-        handler(json['data'], (data) {
-          _controller.evaluateJavascript(
-              'javascriptChannelCallback(${json['id']}, \'${jsonEncode(data)}\')');
+        dynamic json = jsonDecode(message.message);
+        handler(json['data'], (data) async {
+          eval('channelCallback(${json['id']}, \'${jsonEncode(data)}\')');
         });
       },
     );
   }
-}
 
-typedef void JCCallback(data);
-typedef void JCHandler(message, JCCallback callback);
+  eval(String js) async {
+    (await _webView.future).evaluateJavascript(js);
+  }
+}

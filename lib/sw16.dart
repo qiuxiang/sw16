@@ -1,12 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:async';
 
-class SW16DeviceInfo {
+class SW16Device {
   final String ip;
   final String data;
 
-  SW16DeviceInfo(this.ip, this.data);
+  SW16Device(this.ip, this.data);
 
   @override
   String toString() {
@@ -14,35 +14,7 @@ class SW16DeviceInfo {
   }
 }
 
-class SW16Finder {
-  RawDatagramSocket udp;
-  final StreamController<SW16DeviceInfo> streamController = StreamController();
-
-  Future<void> init() async {
-    udp = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 23333);
-    udp.broadcastEnabled = true;
-    udp.listen((e) {
-      var response = udp.receive();
-      if (response != null) {
-        var address = response.address.address;
-        var data = utf8.decode(response.data);
-        streamController.sink.add(SW16DeviceInfo(address, data));
-      }
-    }, onDone: () {
-      streamController.close();
-    });
-  }
-
-  find() {
-    udp.send('HLK'.codeUnits, InternetAddress('255.255.255.255'), 988);
-  }
-
-  StreamSubscription<SW16DeviceInfo> listen(void onData(SW16DeviceInfo event)) {
-    return streamController.stream.listen(onData);
-  }
-}
-
-class SW16Device {
+class SW16Controller {
   String address;
   int port;
   Socket socket;
@@ -74,7 +46,7 @@ class SW16Device {
   static const ON = 1;
   static const OFF = 2;
 
-  SW16Device(this.address, {this.port = 8080});
+  SW16Controller(this.address, {this.port = 8080});
 
   connect() async {
     const timeout = Duration(seconds: 2);
@@ -107,5 +79,39 @@ class SW16Device {
 
   send() {
     socket.add(data);
+  }
+}
+
+class SW16 {
+  RawDatagramSocket _udp;
+  final StreamController<SW16Device> _devices = StreamController();
+  final devices = List<SW16Device>();
+
+  SW16() {
+    RawDatagramSocket.bind(InternetAddress.anyIPv4, 23333).then((udp) {
+      _udp = udp;
+      udp.broadcastEnabled = true;
+      udp.listen((_) {
+        var response = udp.receive();
+        if (response != null) {
+          var address = response.address.address;
+          var data = utf8.decode(response.data);
+          var device = SW16Device(address, data);
+          devices.add(device);
+          _devices.sink.add(device);
+        }
+      }, onDone: () {
+        _devices.close();
+      });
+    });
+  }
+
+  refreshDevices() {
+    devices.clear();
+    _udp.send('HLK'.codeUnits, InternetAddress('255.255.255.255'), 988);
+  }
+
+  Stream<SW16Device> get findDevices {
+    return _devices.stream;
   }
 }
