@@ -11,9 +11,8 @@ class WebApp extends StatelessWidget {
   final _sw16 = SW16();
 
   WebApp() {
-    _sw16.findDevices.listen((device) {
-      print(device);
-      eval('on');
+    _sw16.device.listen((device) {
+      eval('onMessage("device", \'${jsonEncode(device)}\')');
     });
   }
 
@@ -27,19 +26,20 @@ class WebApp extends StatelessWidget {
         },
       ),
       body: WebView(
-        initialUrl: 'http://192.168.1.17:8000',
+        initialUrl: 'http://localhost:8081',
         onWebViewCreated: (controller) {
           _webView.complete(controller);
         },
         javascriptMode: JavascriptMode.unrestricted,
         javascriptChannels: [
-          javascriptChannel('refreshDevices', (data, callback) {
-            _sw16.refreshDevices();
-          }),
-          javascriptChannel('getDevices', (data, callback) {}),
-          javascriptChannel('print', (data, callback) {
-            print(data);
-          })
+          javascriptChannel('findDevices', (_) => _sw16.findDevices()),
+          javascriptChannel('clearDevices', (_) => _sw16.clearDevices()),
+          javascriptChannel('getDevices', (_) => _sw16.devices),
+          javascriptChannel(
+              'turnOn', (index) => _sw16.turnOn(index[0], index[1])),
+          javascriptChannel(
+              'turnOff', (index) => _sw16.turnOff(index[0], index[1])),
+          javascriptChannel('logcat', (message) => print(message))
         ].toSet(),
       ),
     );
@@ -48,11 +48,12 @@ class WebApp extends StatelessWidget {
   JavascriptChannel javascriptChannel(String name, handler) {
     return JavascriptChannel(
       name: name,
-      onMessageReceived: (message) {
+      onMessageReceived: (message) async {
         dynamic json = jsonDecode(message.message);
-        handler(json['data'], (data) async {
+        var data = await handler(json['data']);
+        if (data != null) {
           eval('channelCallback(${json['id']}, \'${jsonEncode(data)}\')');
-        });
+        }
       },
     );
   }
