@@ -38,6 +38,7 @@ class SW16Controller {
   int _port = 8080;
   bool _connected = false;
   Socket _socket;
+  final StreamController<List<bool>> _stream = StreamController();
   List<int> _data = [
     0xaa,
     0X0f,
@@ -78,6 +79,7 @@ class SW16Controller {
       _connected = false;
       _connect();
     }, onDone: () {
+      _stream.close();
       _socket.destroy();
       _connected = false;
     });
@@ -86,8 +88,10 @@ class SW16Controller {
 
   _onData(Uint8List data) {
     if (data[1] == 12) {
-      status = data.sublist(2, 18).map((i) => i == 1);
-      print(status);
+      status = data.sublist(2, 18).map((i) => i == 1).toList();
+      if (!_stream.isClosed) {
+        _stream.sink.add(status);
+      }
     }
   }
 
@@ -108,11 +112,23 @@ class SW16Controller {
   turnOff(int index) {
     turn(index, OFF);
   }
+
+  Stream<List<bool>> get onStatusChanged {
+    return _stream.stream;
+  }
+}
+
+class SW16Status {
+  final int _index;
+  final List<bool> _status;
+  SW16Status(this._index, this._status);
+  Map<String, dynamic> toJson() => {'index': _index, 'status': _status};
 }
 
 class SW16 {
   RawDatagramSocket _udp;
-  final StreamController<SW16Device> _stream = StreamController();
+  final StreamController<SW16Device> _onFind = StreamController();
+  final StreamController<SW16Status> _onStatusChanged = StreamController();
   final _devices = List<SW16Controller>();
 
   SW16() {
@@ -126,12 +142,17 @@ class SW16 {
           var data = utf8.decode(response.data);
           if (_devices.indexWhere((item) => item.device.raw == data) == -1) {
             var device = SW16Device(address, data);
-            _devices.add(SW16Controller(device));
-            _stream.sink.add(device);
+            var index = _devices.length;
+            var controller = SW16Controller(device);
+            controller.onStatusChanged.listen((status) {
+              _onStatusChanged.sink.add(SW16Status(index, status));
+            });
+            _devices.add(controller);
+            _onFind.sink.add(device);
           }
         }
       }, onDone: () {
-        _stream.close();
+        _onFind.close();
       });
     });
   }
@@ -152,7 +173,9 @@ class SW16 {
     _devices[i].turnOff(switchIndex);
   }
 
-  Stream<SW16Device> get device => _stream.stream;
+  Stream<SW16Device> get onFind => _onFind.stream;
+
+  Stream<SW16Status> get onStatusChanged => _onStatusChanged.stream;
 
   List<SW16Device> get devices => _devices.map((item) => item.device).toList();
 }

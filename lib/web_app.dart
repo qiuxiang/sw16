@@ -1,47 +1,49 @@
 import 'dart:async';
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_webview_plugin/flutter_webview_plugin.dart';
 
 import 'sw16.dart';
 
 class WebApp extends StatelessWidget {
-  final _webView = Completer<WebViewController>();
+  final _loaded = Completer<bool>();
+  final _webView = new FlutterWebviewPlugin();
   final _sw16 = SW16();
 
   WebApp() {
-    _sw16.device.listen((device) {
+    _sw16.onFind.listen((device) {
       eval('onMessage("device", \'${jsonEncode(device)}\')');
+    });
+    _sw16.onStatusChanged.listen((status) {
+      eval('onMessage("status", \'${jsonEncode(status)}\')');
+    });
+    _webView.onStateChanged.listen((state) {
+      if (state.type == WebViewState.finishLoad && !_loaded.isCompleted) {
+        _loaded.complete(true);
+      }
     });
   }
 
   @override
   Widget build(context) {
-    return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        child: Icon(Icons.refresh),
-        onPressed: () async {
-          (await _webView.future).reload();
-        },
-      ),
-      body: WebView(
-        initialUrl: 'http://localhost:8081',
-        onWebViewCreated: (controller) {
-          _webView.complete(controller);
-        },
-        javascriptMode: JavascriptMode.unrestricted,
-        javascriptChannels: [
-          javascriptChannel('findDevices', (_) => _sw16.findDevices()),
-          javascriptChannel('clearDevices', (_) => _sw16.clearDevices()),
-          javascriptChannel('getDevices', (_) => _sw16.devices),
-          javascriptChannel(
-              'turnOn', (index) => _sw16.turnOn(index[0], index[1])),
-          javascriptChannel(
-              'turnOff', (index) => _sw16.turnOff(index[0], index[1])),
-          javascriptChannel('logcat', (message) => print(message))
-        ].toSet(),
-      ),
+    SystemChrome.setEnabledSystemUIOverlays([]);
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    return WebviewScaffold(
+      url: "http://localhost:8081",
+      javascriptChannels: [
+        javascriptChannel('findDevices', (_) => _sw16.findDevices()),
+        javascriptChannel('clearDevices', (_) => _sw16.clearDevices()),
+        javascriptChannel('getDevices', (_) => _sw16.devices),
+        javascriptChannel(
+            'turnOn', (index) => _sw16.turnOn(index[0], index[1])),
+        javascriptChannel(
+            'turnOff', (index) => _sw16.turnOff(index[0], index[1])),
+        javascriptChannel('logcat', (message) => print(message))
+      ].toSet(),
     );
   }
 
@@ -59,6 +61,7 @@ class WebApp extends StatelessWidget {
   }
 
   eval(String js) async {
-    (await _webView.future).evaluateJavascript(js);
+    await _loaded.future;
+    _webView.evalJavascript(js);
   }
 }
